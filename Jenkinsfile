@@ -7,7 +7,7 @@ pipeline {
     
     environment {
 		SCANNER_HOME= tool 'sonar-scanner'
-		NVD_API_KEY = credentials('NVD_API_KEY')
+		// NVD_API_KEY = credentials('NVD_API_KEY')
 	}
 
     stages {
@@ -31,23 +31,9 @@ pipeline {
         
         stage('File Scan Trivy') {
             steps {
-                sh 'trivy fs --format table -o fs-report.html .'
+                sh 'trivy fs --format json -o fs-report.html .'
             }
-        }
-        
-		//Always use OWSP 6.5.1 version for smoot work.and add NVD api-key in secret credentials.
-        stage('OWASP Dependency Check') {
-            steps {
-                dependencyCheck additionalArguments: "--scan ./ --nvdApiKey $NVD_API_KEY", odcInstallation: 'DP-Check'
-                sh 'ls -l'
-            }
-            post {
-                always {
-                    dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
-                }
-            }
-        }
-        
+        }       
         stage('SonarQube scan') {
             steps {
                 withSonarQubeEnv('sonar-server') {
@@ -82,12 +68,28 @@ pipeline {
             }
         }
 		
-		stage('Docker Container Running') {
+		// stage('Docker Container Running') {
+        //     steps {
+        //         script {
+        //             withDockerRegistry(credentialsId: 'docker-cred', toolName: 'docker') {
+        //                 sh "docker run -d -p 3000:3000 devesh121/yelmcamp:latest ."
+        //             }
+        //         }
+        //     }
+        // }
+
+        stage('Deploy To Kubernetes') {
             steps {
-                script {
-                    withDockerRegistry(credentialsId: 'docker-cred', toolName: 'docker') {
-                        sh "docker run -d -p 3000:3000 devesh121/yelmcamp:latest ."
-                    }
+                withKubeCredentials(kubectlCredentials: [[caCertificate: '', clusterName: 'EKS-2', contextName: '', credentialsId: 'k8-token', namespace: 'webapps', serverUrl: 'https://CA8B5C8C7644A26B8C0D8CF5EC1ECDF4.gr7.us-east-1.eks.amazonaws.com']]) {
+                    sh "kubectl apply -f ./Manifests/dss.yml"
+                }
+            }
+        }
+
+        stage('verify Deployment') {
+            steps {
+                withKubeCredentials(kubectlCredentials: [[caCertificate: '', clusterName: 'EKS-2', contextName: '', credentialsId: 'k8-token', namespace: 'webapps', serverUrl: 'https://CA8B5C8C7644A26B8C0D8CF5EC1ECDF4.gr7.us-east-1.eks.amazonaws.com']]) {
+                    sh "kubectl get pods -n webapps"
                 }
             }
         }
